@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>믿음의 항해</title>
+    <title>믿음의 항해 카메라</title>
     <style>
         * {
             box-sizing: border-box;
@@ -19,7 +19,7 @@
             min-height: 100vh;
             overflow: hidden;
         }
-        /* 화면 비율 컨테이너 (스마트폰 최적화 세로형 뷰포트) */
+        /* 화면 비율 컨테이너 */
         #app-container {
             position: relative;
             width: 100vw;
@@ -30,14 +30,14 @@
             overflow: hidden;
             box-shadow: 0 0 30px rgba(0,0,0,0.8);
         }
-        /* 실시간 카메라 피드 - 빈틈없이 꽉 채우도록 설정 */
+        /* 실시간 카메라 피드 - 미리보기도 줌아웃 반영 */
         video {
             position: absolute;
             top: 0;
             left: 0;
             width: 100%;
             height: 100%;
-            object-fit: cover; /* 예시 사진처럼 여백 없이 꽉 채우기 */
+            object-fit: cover; 
             z-index: 1;
             background-color: #000;
         }
@@ -108,6 +108,12 @@
     <canvas id="canvas"></canvas>
 
     <script>
+        // 🌟 [거리감 조정 옵션]
+        // 1.0 = 현재 비율 (너무 가깝게 찍힘)
+        // 0.75 = 약 25% 멀어짐 (추천: 적당한 시야 확보)
+        // 더 멀리 찍히게 하려면 이 값을 0.7 이나 0.65 정도로 더 낮추시면 됩니다!
+        const CUSTOM_ZOOM = 0.75; 
+
         const video = document.getElementById('video');
         const frame = document.getElementById('frame-overlay');
         const captureBtn = document.getElementById('capture-btn');
@@ -134,10 +140,18 @@
             try {
                 currentStream = await navigator.mediaDevices.getUserMedia(constraints);
                 video.srcObject = currentStream;
-                video.style.transform = useFrontCamera ? "scaleX(-1)" : "scaleX(1)";
+                
+                // 미리보기 화면도 줌아웃과 거울모드 연동시킴
+                updateVideoPreview();
             } catch (error) {
                 alert("카메라 권한을 허용해 주세요.");
             }
+        }
+
+        function updateVideoPreview() {
+            // object-fit: cover 상태에서 인위적으로 scale을 줄여 줌아웃 효과 구현
+            const flipX = useFrontCamera ? -1 : 1;
+            video.style.transform = `scale(${flipX * CUSTOM_ZOOM}, ${CUSTOM_ZOOM})`;
         }
 
         switchBtn.addEventListener('click', () => {
@@ -148,20 +162,19 @@
         captureBtn.addEventListener('click', () => {
             const ctx = canvas.getContext('2d');
             
-            // 결과물 저장 해상도 (프레임 원본 기준 1:1 세로형 박스 고정)
             const targetWidth = frame.naturalWidth || 1080;
             const targetHeight = frame.naturalHeight || 1920;
             
             canvas.width = targetWidth;
             canvas.height = targetHeight;
 
-            // 도화지 초기화
+            // 배경 클리어
             ctx.fillStyle = "#000000";
             ctx.fillRect(0, 0, targetWidth, targetHeight);
 
             ctx.save();
 
-            // 전면 카메라 거울 모드 좌우 대칭 보정
+            // 전면 카메라 거울 반전
             if (useFrontCamera) {
                 ctx.translate(targetWidth, 0);
                 ctx.scale(-1, 1);
@@ -172,40 +185,41 @@
             const videoRatio = vWidth / vHeight;
             const targetRatio = targetWidth / targetHeight;
 
-            let rWidth, rHeight, xOff, yOff;
+            let rWidth, rHeight;
 
-            // 🌟 [핵심 수정: 세로 꽉 찬 Cover 렌더링 공식] 
-            // 찌그러짐 없이 예시 이미지처럼 위아래/좌우 여백을 완전히 메우며 적당한 시야 확보
+            // 1단계: 먼저 꽉 차는 기본 Cover 크기 구하기
             if (videoRatio > targetRatio) {
-                // 영상이 프레임보다 가로로 더 넓은 경우 -> 세로를 꽉 채우고 좌우를 균등 분할 크롭
                 rHeight = targetHeight;
                 rWidth = targetHeight * videoRatio;
-                xOff = (targetWidth - rWidth) / 2;
-                yOff = 0;
             } else {
-                // 영상이 프레임보다 세로로 더 긴 경우 -> 가로를 꽉 채우고 위아래를 균등 분할 크롭
                 rWidth = targetWidth;
                 rHeight = targetWidth / videoRatio;
-                xOff = 0;
-                yOff = (targetHeight - rHeight) / 2;
             }
+
+            // 2단계: 🌟 [핵심 수식] 설정한 CUSTOM_ZOOM 만큼 카메라 렌즈 상을 통째로 축소 (줌아웃)
+            const finalWidth = rWidth * CUSTOM_ZOOM;
+            const finalHeight = rHeight * CUSTOM_ZOOM;
+
+            // 3단계: 축소하면서 생기는 오프셋을 정중앙으로 밀어 정렬하기
+            const xOff = (targetWidth - finalWidth) / 2;
+            const yOff = (targetHeight - finalHeight) / 2;
             
-            // 이미지 드로잉
-            ctx.drawImage(video, xOff, yOff, rWidth, rHeight);
+            // 축소 처리된 적당한 거리의 이미지 드로우
+            ctx.drawImage(video, xOff, yOff, finalWidth, finalHeight);
             ctx.restore();
 
-            // [2단계] 그 위에 투명 PNG 캐릭터 디자인 프레임을 온전한 해상도로 덮어쓰기
+            // [2단계] 프레임 레이어 선명하게 입히기
             ctx.drawImage(frame, 0, 0, targetWidth, targetHeight);
 
-            // [3단계] 최종 다운로드 처리
+            // [3단계] 최종 저장 다운로드
             try {
                 const dataUrl = canvas.toDataURL('image/png');
                 const link = document.createElement('a');
-                link.download = `faith_nation_${Date.now()}.png`;
+                link.download = `faith_cruise_${Date.now()}.png`;
                 link.href = dataUrl;
                 link.click();
             } catch (e) {
-                alert("다운로드 실패: 일반 모바일 브라우저(크롬, 사파리)를 이용해 주세요.");
+                alert("다운로드 실패: 일반 모바일 브라우저(크롬, 사파리)를 사용해 주세요.");
             }
         });
 
