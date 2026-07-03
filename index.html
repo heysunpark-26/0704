@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>하나님 나라 카메라</title>
+    <title>믿음의 항해 카메라</title>
     <style>
         * {
             box-sizing: border-box;
@@ -29,14 +29,14 @@
             background-color: #000;
             overflow: hidden;
         }
-        /* 실시간 카메라 피드 - 확대(Crop) 없이 화면에 맞춤 */
+        /* 실시간 카메라 피드 */
         video {
             position: absolute;
             top: 0;
             left: 0;
             width: 100%;
             height: 100%;
-            object-fit: contain; /* 중요: 영상을 자르지 않고 화면 안에 전체가 다 들어오도록 설정 */
+            object-fit: contain; 
             z-index: 1;
             background-color: #000;
         }
@@ -47,7 +47,7 @@
             left: 0;
             width: 100%;
             height: 100%;
-            object-fit: fill; /* 프레임은 화면 전체에 딱 맞춤 */
+            object-fit: fill; 
             pointer-events: none;
             z-index: 2;
         }
@@ -119,7 +119,6 @@
                 currentStream.getTracks().forEach(track => track.stop());
             }
 
-            // 고해상도 세로 모드 타겟팅
             const constraints = {
                 video: {
                     facingMode: useFrontCamera ? "user" : "environment",
@@ -143,63 +142,92 @@
             startCamera();
         });
 
-        // 촬영 및 합성 로직 수정 (확대 방지 배치)
         captureBtn.addEventListener('click', () => {
             const ctx = canvas.getContext('2d');
             
-            // 결과물 저장 해상도를 프레임 이미지의 실제 해상도(원본 화질) 기준으로 설정
+            // 저장할 이미지 해상도를 프레임 기준으로 세로형 고정
             const targetWidth = frame.naturalWidth || 1080;
             const targetHeight = frame.naturalHeight || 1920;
             
             canvas.width = targetWidth;
             canvas.height = targetHeight;
 
-            // 배경을 검은색으로 기본 채우기
+            // 검은색 배경 청소
             ctx.fillStyle = "#000000";
             ctx.fillRect(0, 0, targetWidth, targetHeight);
 
-            // [1단계] 배경 카메라 화면 그리기
             ctx.save();
-            if (useFrontCamera) {
-                ctx.translate(targetWidth, 0);
-                ctx.scale(-1, 1);
+
+            // ⚠️ [가로방향 데이터 감지 및 세로 회전 보정]
+            // 실제 카메라 픽셀 데이터가 가로로 누워있는지 확인합니다.
+            const isVideoHorizontal = video.videoWidth > video.videoHeight;
+            
+            let vWidth = video.videoWidth;
+            let vHeight = video.videoHeight;
+
+            if (isVideoHorizontal) {
+                // 1. 캔버스 중심점을 기준으로 이동한 뒤 90도 회전 시킵니다.
+                ctx.translate(targetWidth / 2, targetHeight / 2);
+                ctx.rotate(90 * Math.PI / 180);
+                
+                // 2. 전면 카메라 거울 모드 대응 좌우 반전 위치 조정
+                if (useFrontCamera) {
+                    ctx.scale(1, -1); // 회전된 상태에서의 반전
+                }
+                
+                // 3. 회전했으므로 너비와 높이 기준을 스왑(Swap)합니다.
+                vWidth = video.videoHeight;
+                vHeight = video.videoWidth;
+                
+                // 4. 중심점을 다시 드로잉용 원점으로 가상 이동
+                ctx.translate(-targetHeight / 2, -targetWidth / 2);
+            } else {
+                // 정상적인 세로형 데이터인 경우 기존 로직 유지
+                if (useFrontCamera) {
+                    ctx.translate(targetWidth, 0);
+                    ctx.scale(-1, 1);
+                }
             }
 
-            // 중요: 카메라 화면이 잘리지 않고 '멀리서 찍은 것처럼 전체가 다 나오도록(Contain)' 비율 계산
-            const videoRatio = video.videoWidth / video.videoHeight;
+            // [1단계] 비율 계산 (Contain 방식)
+            const videoRatio = vWidth / vHeight;
             const targetRatio = targetWidth / targetHeight;
 
             let renderWidth, renderHeight, xOffset, yOffset;
 
             if (videoRatio > targetRatio) {
-                // 카메라 영상이 프레임보다 가로로 더 넓은 경우
-                renderWidth = targetWidth;
-                renderHeight = targetWidth / videoRatio;
+                renderWidth = isVideoHorizontal ? targetHeight : targetWidth;
+                renderHeight = renderWidth / videoRatio;
                 xOffset = 0;
-                yOffset = (targetHeight - renderHeight) / 2;
+                yOffset = ((isVideoHorizontal ? targetWidth : targetHeight) - renderHeight) / 2;
             } else {
-                // 카메라 영상이 프레임보다 세로로 더 긴 경우
-                renderHeight = targetHeight;
-                renderWidth = targetHeight * videoRatio;
-                xOffset = (targetWidth - renderWidth) / 2;
+                renderHeight = isVideoHorizontal ? targetWidth : targetHeight;
+                renderWidth = renderHeight * videoRatio;
+                xOffset = ((isVideoHorizontal ? targetHeight : targetWidth) - renderWidth) / 2;
                 yOffset = 0;
             }
 
-            ctx.drawImage(video, xOffset, yOffset, renderWidth, renderHeight);
+            // 가로 상태로 회전된 상태 혹은 일반 상태에 맞춰 정확히 바인딩하여 그리기
+            if (isVideoHorizontal) {
+                ctx.drawImage(video, yOffset, xOffset, renderHeight, renderWidth);
+            } else {
+                ctx.drawImage(video, xOffset, yOffset, renderWidth, renderHeight);
+            }
+            
             ctx.restore();
 
-            // [2단계] 그 위에 PNG 프레임을 정확히 전체 크기로 덮어쓰기
+            // [2단계] 그 위에 동암교회 프레임을 온전하게 덮어쓰기
             ctx.drawImage(frame, 0, 0, targetWidth, targetHeight);
 
-            // [3단계] 이미지 저장
+            // [3단계] 다운로드 유도
             try {
                 const dataUrl = canvas.toDataURL('image/png');
                 const link = document.createElement('a');
-                link.download = `gods_people_${Date.now()}.png`;
+                link.download = `faith_cruise_${Date.now()}.png`;
                 link.href = dataUrl;
                 link.click();
             } catch (e) {
-                alert("다운로드에 실패했습니다. Safari나 Chrome 브라우저를 이용해 주세요.");
+                alert("다운로드에 실패했습니다. 크롬이나 사파리 앱을 사용해 주세요.");
             }
         });
 
