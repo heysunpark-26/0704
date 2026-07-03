@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>예수님과 함께하는 믿음의 항해</title>
+    <title>믿음의 항해</title>
     <style>
         * {
             box-sizing: border-box;
@@ -19,7 +19,7 @@
             min-height: 100vh;
             overflow: hidden;
         }
-        /* 화면 비율 컨테이너 (스마트폰 최적화 세로 뷰) */
+        /* 화면 비율 컨테이너 */
         #app-container {
             position: relative;
             width: 100vw;
@@ -30,13 +30,14 @@
             overflow: hidden;
             box-shadow: 0 0 30px rgba(0,0,0,0.8);
         }
-        /* 실시간 카메라 피드 - 전체 시야 확보를 위해 자르지 않음 */
+        /* 실시간 카메라 피드 - 줌아웃 비율 시각적 동기화 */
         video {
             position: absolute;
             top: 0;
             left: 0;
             width: 100%;
             height: 100%;
+            /* ⚠️ 아래 자바스크립트에서 CAMERA_ZOOM 비율에 맞춰 object-fit과 scale을 조절합니다 */
             object-fit: contain; 
             z-index: 1;
             background-color: #000;
@@ -64,7 +65,6 @@
             padding: 0 40px;
             z-index: 3;
         }
-        /* 촬영 버튼 */
         #capture-btn {
             width: 75px;
             height: 75px;
@@ -78,7 +78,6 @@
         #capture-btn:active {
             transform: scale(0.92);
         }
-        /* 카메라 전환 버튼 */
         #switch-btn {
             background: rgba(0, 0, 0, 0.6);
             color: #fff;
@@ -89,10 +88,6 @@
             cursor: pointer;
             backdrop-filter: blur(5px);
         }
-        #switch-btn:active {
-            background: rgba(255, 255, 255, 0.2);
-        }
-        /* 합성 연산용 숨겨진 캔버스 */
         canvas {
             display: none;
         }
@@ -101,22 +96,24 @@
 <body>
 
     <div id="app-container">
-        <!-- 실시간 카메라 영상 -->
         <video id="video" autoplay playsinline></video>
-        <!-- 오버레이 프레임 (동암교회 믿음의 항해) -->
         <img id="frame-overlay" src="frame.png" alt="프레임">
         
-        <!-- 하단 조작 UI -->
         <div id="controls">
             <button id="switch-btn">🔄 전환</button>
             <button id="capture-btn" title="사진 촬영"></button>
-            <div style="width: 65px;"></div> <!-- 우측 밸런스를 위한 여백 -->
+            <div style="width: 65px;"></div>
         </div>
     </div>
 
     <canvas id="canvas"></canvas>
 
     <script>
+        // 🌟 [줌 제어 설정 옵션] 
+        // 1.0 = 기본 비율 / 0.75 = 25% 줌아웃(더 멀리 찍힘) / 0.6 = 40% 줌아웃
+        // 사진을 더 멀리서 찍히게 하려면 이 값을 0.7이나 0.6으로 줄이시면 됩니다!
+        const CAMERA_ZOOM = 0.75; 
+
         const video = document.getElementById('video');
         const frame = document.getElementById('frame-overlay');
         const captureBtn = document.getElementById('capture-btn');
@@ -124,9 +121,8 @@
         const canvas = document.getElementById('canvas');
 
         let currentStream = null;
-        let useFrontCamera = true; // 기본값: 셀카 모드(전면)
+        let useFrontCamera = true;
 
-        // 1. 모바일 카메라 시작 함수
         async function startCamera() {
             if (currentStream) {
                 currentStream.getTracks().forEach(track => track.stop());
@@ -144,43 +140,46 @@
             try {
                 currentStream = await navigator.mediaDevices.getUserMedia(constraints);
                 video.srcObject = currentStream;
-                // 전면 카메라는 거울 모드(좌우 반전) 적용, 후면은 정방향
-                video.style.transform = useFrontCamera ? "scaleX(-1)" : "scaleX(1)";
+                
+                // 실시간 화면 미리보기에도 적용할 줌아웃 스케일 반영
+                updateVideoTransform();
             } catch (error) {
-                alert("카메라 권한을 허용해 주셔야 이용이 가능합니다.");
+                alert("카메라 권한을 허용해 주세요.");
             }
         }
 
-        // 2. 카메라 전/후면 전환 이벤트
+        function updateVideoTransform() {
+            // 전면 카메라 거울 반전(scaleX(-1))과 줌아웃 배열 결합
+            const scaleXStr = useFrontCamera ? -CAMERA_ZOOM : CAMERA_ZOOM;
+            video.style.transform = `scale(${scaleXStr}, ${CAMERA_ZOOM})`;
+        }
+
         switchBtn.addEventListener('click', () => {
             useFrontCamera = !useFrontCamera;
             startCamera();
         });
 
-        // 3. 사진 촬영 및 이미지 합성 다운로드 이벤트
         captureBtn.addEventListener('click', () => {
             const ctx = canvas.getContext('2d');
             
-            // 이미지 저장 해상도 (frame.png 원본 크기 기준 자동으로 매핑)
             const targetWidth = frame.naturalWidth || 1080;
             const targetHeight = frame.naturalHeight || 1920;
             
             canvas.width = targetWidth;
             canvas.height = targetHeight;
 
-            // 도화지 검은색 배경으로 초기화
+            // 배경 클리어 (빈 여백은 검은색으로 고정)
             ctx.fillStyle = "#000000";
             ctx.fillRect(0, 0, targetWidth, targetHeight);
 
             ctx.save();
 
-            // 전면 카메라일 경우 저장할 때도 거울 모드로 좌우 반전 연산
+            // 1. 전면 카메라 거울 모드 보정
             if (useFrontCamera) {
                 ctx.translate(targetWidth, 0);
                 ctx.scale(-1, 1);
             }
 
-            // 카메라 영상과 프레임 간 비율 계산
             const vWidth = video.videoWidth;
             const vHeight = video.videoHeight;
             const videoRatio = vWidth / vHeight;
@@ -188,7 +187,7 @@
 
             let rWidth, rHeight, xOff, yOff;
 
-            // [정방향 세로형 렌더링 공식] 찌그러짐과 무리한 확대를 방지하는 정밀 매핑
+            // 정방향 세로 배치 크기 계산
             if (videoRatio > targetRatio) {
                 rWidth = targetWidth;
                 rHeight = targetWidth / videoRatio;
@@ -201,14 +200,22 @@
                 yOff = 0;
             }
             
-            // 캔버스에 카메라 프레임 드로우
-            ctx.drawImage(video, xOff, yOff, rWidth, rHeight);
+            // 2. 🌟 [핵심] 지정된 CAMERA_ZOOM 비율만큼 렌더링 영역을 중앙 기점으로 축소(줌아웃)
+            const zoomedWidth = rWidth * CAMERA_ZOOM;
+            const zoomedHeight = rHeight * CAMERA_ZOOM;
+            
+            // 축소되면서 발생하는 추가 여백을 계산하여 정중앙에 정렬
+            const finalX = xOff + (rWidth - zoomedWidth) / 2;
+            const finalY = yOff + (rHeight - zoomedHeight) / 2;
+
+            // 축소된 카메라 영상 그리기
+            ctx.drawImage(video, finalX, finalY, zoomedWidth, zoomedHeight);
             ctx.restore();
 
-            // 그 위에 투명 PNG 캐릭터 프레임을 1:1 크기로 선명하게 덮어쓰기
+            // 3. 그 위에 캐릭터 프레임 온전하게 오버레이
             ctx.drawImage(frame, 0, 0, targetWidth, targetHeight);
 
-            // 최종 이미지 추출 및 다운로드 기능 트리거
+            // 4. 다운로드
             try {
                 const dataUrl = canvas.toDataURL('image/png');
                 const link = document.createElement('a');
@@ -216,11 +223,10 @@
                 link.href = dataUrl;
                 link.click();
             } catch (e) {
-                alert("다운로드 실패: 인앱 브라우저(카카오톡/네이버 등)에서는 저장이 제한될 수 있습니다. 우측 하단 버튼을 눌러 크롬이나 사파리로 열어주세요!");
+                alert("다운로드 실패: 일반 브라우저(크롬, 사파리)를 이용해 주세요.");
             }
         });
 
-        // 페이지가 로드되면 카메라 구동
         window.addEventListener('load', startCamera);
     </script>
 </body>
