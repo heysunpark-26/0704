@@ -8,7 +8,7 @@
         * { box-sizing: border-box; margin: 0; padding: 0; }
         body { background-color: #000; display: flex; justify-content: center; align-items: center; min-height: 100vh; overflow: hidden; }
         
-        /* 앱 컨테이너: 화면 전체를 꽉 채우도록 유연하게 설정 */
+        /* 앱 컨테이너: 스마트폰 전체 화면을 꽉 채우도록 설정 */
         #app-container { 
             position: relative; 
             width: 100vw; 
@@ -19,27 +19,24 @@
             overflow: hidden; 
         }
 
-        /* 🌟 검은 여백을 없애기 위해 비디오 영역을 가득 채우는 박스 */
+        /* 🌟 검은 여백을 무조건 파괴하는 100% 꽉 찬 풀스크린 배치 */
         #video-wrapper {
             position: absolute;
             top: 0;
             left: 0;
             width: 100%;
             height: 100%;
-            display: flex;
-            justify-content: center;
-            align-items: center;
             z-index: 1;
         }
 
         video {
             width: 100%;
             height: 100%;
-            object-fit: cover; /* 빈틈없이 꽉 채우기 */
+            object-fit: cover; /* 무조건 빈틈없이 화면을 메웁니다 */
             transform-origin: center center;
         }
 
-        /* 투명 PNG 프레임: 카메라 위를 빈틈없이 가득 덮음 */
+        /* 투명 PNG 프레임 */
         #frame-overlay { 
             position: absolute; 
             top: 0; 
@@ -101,14 +98,6 @@
     <canvas id="canvas"></canvas>
 
     <script>
-        // 🌟 [최적화 줌 세팅] 
-        // 0.7~0.75 정도가 화면 왜곡 없이 여백을 꽉 채우면서 주변 배경이 넓게 나오는 황금 비율입니다.
-        // 만약 더 멀리 찍히게 하고 싶다면 0.65 등으로 수치를 낮춰보세요!
-        const ZOOM_SETTINGS = { 
-            front: 0.72,  // 셀카 모드 줌아웃 비율
-            back: 0.72    // 후면 카메라 줌아웃 비율
-        };
-
         const video = document.getElementById('video');
         const frame = document.getElementById('frame-overlay');
         const captureBtn = document.getElementById('capture-btn');
@@ -120,24 +109,27 @@
 
         async function startCamera() {
             if (currentStream) currentStream.getTracks().forEach(track => track.stop());
+            
+            // 🌟 [해상도 및 시야각 대폭 확장] 
+            // 4K급 높은 사양과 초광각 렌즈 유도를 통해 자연스럽게 줌아웃된 효과를 만듭니다.
             const constraints = {
-                video: { facingMode: useFrontCamera ? "user" : "environment", width: { ideal: 1080 }, height: { ideal: 1920 } },
+                video: { 
+                    facingMode: useFrontCamera ? "user" : "environment", 
+                    width: { ideal: 3840, min: 1920 }, 
+                    height: { ideal: 2160, min: 1080 } 
+                },
                 audio: false
             };
             try {
                 currentStream = await navigator.mediaDevices.getUserMedia(constraints);
                 video.srcObject = currentStream;
-                applyLiveZoom();
+                applyLiveTransform();
             } catch (error) { alert("카메라 권한을 허용해 주세요."); }
         }
 
-        // 렌더링 화면에 검은 여백을 지우고 줌아웃 가상 적용
-        function applyLiveZoom() {
-            const currentZoom = useFrontCamera ? ZOOM_SETTINGS.front : ZOOM_SETTINGS.back;
-            const flipX = useFrontCamera ? -1 : 1;
-            
-            // 화면 비율을 꽉 채운 상태(object-fit:cover)에서 내부 배율만 자연스럽게 축소
-            video.style.transform = `scale(${flipX * currentZoom}, ${currentZoom})`;
+        // 미리보기 거울모드 처리 (인위적인 scale 축소를 제거하여 여백 방지)
+        function applyLiveTransform() {
+            video.style.transform = useFrontCamera ? "scaleX(-1)" : "scaleX(1)";
         }
 
         switchBtn.addEventListener('click', () => {
@@ -147,11 +139,12 @@
 
         captureBtn.addEventListener('click', () => {
             const ctx = canvas.getContext('2d');
+            
+            // 프레임 이미지 원본 해상도와 1:1 매칭 (고해상도 유지)
             const targetWidth = frame.naturalWidth || 1080;
             const targetHeight = frame.naturalHeight || 1920;
             canvas.width = targetWidth; canvas.height = targetHeight;
 
-            // 도화지를 깔끔하게 초기화
             ctx.fillStyle = "#000000";
             ctx.fillRect(0, 0, targetWidth, targetHeight);
             ctx.save();
@@ -161,44 +154,37 @@
                 ctx.scale(-1, 1);
             }
 
-            const currentZoom = useFrontCamera ? ZOOM_SETTINGS.front : ZOOM_SETTINGS.back;
-            
             const vWidth = video.videoWidth;
             const vHeight = video.videoHeight;
             const videoRatio = vWidth / vHeight;
             const targetRatio = targetWidth / targetHeight;
 
-            let rWidth, rHeight;
-            // 빈틈없이 꽉 채우는 베이스 크기 계산 (Cover 공식)
+            let rWidth, rHeight, xOff, yOff;
+            
+            // 화면과 완전히 똑같은 '여백 없는 Cover' 비율로 최종 이미지 합성
             if (videoRatio > targetRatio) {
                 rHeight = targetHeight;
                 rWidth = targetHeight * videoRatio;
+                xOff = (targetWidth - rWidth) / 2;
+                yOff = 0;
             } else {
                 rWidth = targetWidth;
                 rHeight = targetWidth / videoRatio;
+                xOff = 0;
+                yOff = (targetHeight - rHeight) / 2;
             }
 
-            // 구한 베이스 크기에 설정값만큼 멀어지도록 배율 축소 연산
-            const fWidth = rWidth * currentZoom;
-            const fHeight = rHeight * currentZoom;
-            
-            // 줌아웃으로 인해 생기는 여백 영역 분할 후 중앙 정렬 계산
-            const fx = (targetWidth - fWidth) / 2;
-            const fy = (targetHeight - fHeight) / 2;
-            
-            // 영상 출력 및 프레임 합성
-            ctx.drawImage(video, fx, fy, fWidth, fHeight);
+            ctx.drawImage(video, xOff, yOff, rWidth, rHeight);
             ctx.restore();
             ctx.drawImage(frame, 0, 0, targetWidth, targetHeight);
 
-            // 최종 파일 추출 및 저장
             try {
                 const link = document.createElement('a');
-                link.download = `faith_voyage_${Date.now()}.png`;
+                link.download = `faith_cruise_${Date.now()}.png`;
                 link.href = canvas.toDataURL('image/png');
                 link.click();
             } catch (e) {
-                alert("기본 모바일 브라우저(크롬/사파리)로 접속하시면 바로 저장하실 수 있습니다.");
+                alert("크롬이나 사파리 앱으로 접속하시면 바로 저장할 수 있습니다.");
             }
         });
 
