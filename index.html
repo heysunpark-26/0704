@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>하나님 나라 카메라</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+            background-color: #000;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            overflow: hidden;
+        }
+        /* 화면 비율 컨테이너 */
+        #app-container {
+            position: relative;
+            width: 100vw;
+            height: 100vh;
+            max-width: 500px;
+            max-height: 888px; 
+            background-color: #000;
+            overflow: hidden;
+        }
+        /* 실시간 카메라 피드 - 확대(Crop) 없이 화면에 맞춤 */
+        video {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            object-fit: contain; /* 중요: 영상을 자르지 않고 화면 안에 전체가 다 들어오도록 설정 */
+            z-index: 1;
+            background-color: #000;
+        }
+        /* PNG 프레임 오버레이 */
+        #frame-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            object-fit: fill; /* 프레임은 화면 전체에 딱 맞춤 */
+            pointer-events: none;
+            z-index: 2;
+        }
+        /* UI 컨트롤러 */
+        #controls {
+            position: absolute;
+            bottom: 40px;
+            left: 0;
+            width: 100%;
+            display: flex;
+            justify-content: space-around;
+            align-items: center;
+            padding: 0 40px;
+            z-index: 3;
+        }
+        #capture-btn {
+            width: 75px;
+            height: 75px;
+            border-radius: 50%;
+            background-color: #fff;
+            border: 5px solid rgba(255, 255, 255, 0.4);
+            cursor: pointer;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.5);
+        }
+        #capture-btn:active {
+            transform: scale(0.95);
+        }
+        #switch-btn {
+            background: rgba(0, 0, 0, 0.6);
+            color: #fff;
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            padding: 10px 20px;
+            border-radius: 20px;
+            font-size: 14px;
+            cursor: pointer;
+        }
+        canvas {
+            display: none;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="app-container">
+        <video id="video" autoplay playsinline></video>
+        <img id="frame-overlay" src="frame.png" alt="프레임">
+        
+        <div id="controls">
+            <button id="switch-btn">🔄 전환</button>
+            <button id="capture-btn"></button>
+            <div style="width: 65px;"></div>
+        </div>
+    </div>
+
+    <canvas id="canvas"></canvas>
+
+    <script>
+        const video = document.getElementById('video');
+        const frame = document.getElementById('frame-overlay');
+        const captureBtn = document.getElementById('capture-btn');
+        const switchBtn = document.getElementById('switch-btn');
+        const canvas = document.getElementById('canvas');
+
+        let currentStream = null;
+        let useFrontCamera = true;
+
+        async function startCamera() {
+            if (currentStream) {
+                currentStream.getTracks().forEach(track => track.stop());
+            }
+
+            // 고해상도 세로 모드 타겟팅
+            const constraints = {
+                video: {
+                    facingMode: useFrontCamera ? "user" : "environment",
+                    width: { ideal: 1080 },
+                    height: { ideal: 1920 }
+                },
+                audio: false
+            };
+
+            try {
+                currentStream = await navigator.mediaDevices.getUserMedia(constraints);
+                video.srcObject = currentStream;
+                video.style.transform = useFrontCamera ? "scaleX(-1)" : "scaleX(1)";
+            } catch (error) {
+                alert("카메라를 실행할 수 없습니다.");
+            }
+        }
+
+        switchBtn.addEventListener('click', () => {
+            useFrontCamera = !useFrontCamera;
+            startCamera();
+        });
+
+        // 촬영 및 합성 로직 수정 (확대 방지 배치)
+        captureBtn.addEventListener('click', () => {
+            const ctx = canvas.getContext('2d');
+            
+            // 결과물 저장 해상도를 프레임 이미지의 실제 해상도(원본 화질) 기준으로 설정
+            const targetWidth = frame.naturalWidth || 1080;
+            const targetHeight = frame.naturalHeight || 1920;
+            
+            canvas.width = targetWidth;
+            canvas.height = targetHeight;
+
+            // 배경을 검은색으로 기본 채우기
+            ctx.fillStyle = "#000000";
+            ctx.fillRect(0, 0, targetWidth, targetHeight);
+
+            // [1단계] 배경 카메라 화면 그리기
+            ctx.save();
+            if (useFrontCamera) {
+                ctx.translate(targetWidth, 0);
+                ctx.scale(-1, 1);
+            }
+
+            // 중요: 카메라 화면이 잘리지 않고 '멀리서 찍은 것처럼 전체가 다 나오도록(Contain)' 비율 계산
+            const videoRatio = video.videoWidth / video.videoHeight;
+            const targetRatio = targetWidth / targetHeight;
+
+            let renderWidth, renderHeight, xOffset, yOffset;
+
+            if (videoRatio > targetRatio) {
+                // 카메라 영상이 프레임보다 가로로 더 넓은 경우
+                renderWidth = targetWidth;
+                renderHeight = targetWidth / videoRatio;
+                xOffset = 0;
+                yOffset = (targetHeight - renderHeight) / 2;
+            } else {
+                // 카메라 영상이 프레임보다 세로로 더 긴 경우
+                renderHeight = targetHeight;
+                renderWidth = targetHeight * videoRatio;
+                xOffset = (targetWidth - renderWidth) / 2;
+                yOffset = 0;
+            }
+
+            ctx.drawImage(video, xOffset, yOffset, renderWidth, renderHeight);
+            ctx.restore();
+
+            // [2단계] 그 위에 PNG 프레임을 정확히 전체 크기로 덮어쓰기
+            ctx.drawImage(frame, 0, 0, targetWidth, targetHeight);
+
+            // [3단계] 이미지 저장
+            try {
+                const dataUrl = canvas.toDataURL('image/png');
+                const link = document.createElement('a');
+                link.download = `gods_people_${Date.now()}.png`;
+                link.href = dataUrl;
+                link.click();
+            } catch (e) {
+                alert("다운로드에 실패했습니다. Safari나 Chrome 브라우저를 이용해 주세요.");
+            }
+        });
+
+        window.addEventListener('load', startCamera);
+    </script>
+</body>
+</html>
