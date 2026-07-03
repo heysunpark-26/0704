@@ -3,93 +3,17 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>믿음의 항해 카메라</title>
+    <title>믿음의 항해 카메라 (셀카/후면 줌 최적화)</title>
     <style>
-        * {
-            box-sizing: border-box;
-            margin: 0;
-            padding: 0;
-        }
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, sans-serif;
-            background-color: #000;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            min-height: 100vh;
-            overflow: hidden;
-        }
-        /* 화면 비율 컨테이너 */
-        #app-container {
-            position: relative;
-            width: 100vw;
-            height: 100vh;
-            max-width: 500px;
-            max-height: 888px; 
-            background-color: #000;
-            overflow: hidden;
-            box-shadow: 0 0 30px rgba(0,0,0,0.8);
-        }
-        /* 실시간 카메라 피드 - 미리보기도 줌아웃 반영 */
-        video {
-            position: absolute;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            object-fit: cover; 
-            z-index: 1;
-            background-color: #000;
-        }
-        /* PNG 프레임 오버레이 */
-        #frame-overlay {
-            position: absolute;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            object-fit: fill; 
-            pointer-events: none;
-            z-index: 2;
-        }
-        /* 하단 UI 컨트롤러 */
-        #controls {
-            position: absolute;
-            bottom: 40px;
-            left: 0;
-            width: 100%;
-            display: flex;
-            justify-content: space-around;
-            align-items: center;
-            padding: 0 40px;
-            z-index: 3;
-        }
-        #capture-btn {
-            width: 75px;
-            height: 75px;
-            border-radius: 50%;
-            background-color: #fff;
-            border: 5px solid rgba(255, 255, 255, 0.4);
-            cursor: pointer;
-            box-shadow: 0 4px 15px rgba(0,0,0,0.5);
-            transition: transform 0.1s ease;
-        }
-        #capture-btn:active {
-            transform: scale(0.92);
-        }
-        #switch-btn {
-            background: rgba(0, 0, 0, 0.6);
-            color: #fff;
-            border: 1px solid rgba(255, 255, 255, 0.3);
-            padding: 10px 20px;
-            border-radius: 20px;
-            font-size: 14px;
-            cursor: pointer;
-            backdrop-filter: blur(5px);
-        }
-        canvas {
-            display: none;
-        }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { background-color: #000; display: flex; justify-content: center; align-items: center; min-height: 100vh; overflow: hidden; }
+        #app-container { position: relative; width: 100vw; height: 100vh; max-width: 500px; max-height: 888px; background-color: #000; overflow: hidden; }
+        video { position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; z-index: 1; }
+        #frame-overlay { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 2; }
+        #controls { position: absolute; bottom: 40px; left: 0; width: 100%; display: flex; justify-content: space-around; align-items: center; padding: 0 40px; z-index: 3; }
+        #capture-btn { width: 75px; height: 75px; border-radius: 50%; background-color: #fff; border: 5px solid rgba(255, 255, 255, 0.4); cursor: pointer; }
+        #switch-btn { background: rgba(0, 0, 0, 0.6); color: #fff; border: 1px solid rgba(255, 255, 255, 0.3); padding: 10px 20px; border-radius: 20px; font-size: 14px; cursor: pointer; }
+        canvas { display: none; }
     </style>
 </head>
 <body>
@@ -97,22 +21,21 @@
     <div id="app-container">
         <video id="video" autoplay playsinline></video>
         <img id="frame-overlay" src="frame.png" alt="프레임">
-        
         <div id="controls">
             <button id="switch-btn">🔄 전환</button>
-            <button id="capture-btn" title="사진 촬영"></button>
+            <button id="capture-btn"></button>
             <div style="width: 65px;"></div>
         </div>
     </div>
-
     <canvas id="canvas"></canvas>
 
     <script>
-        // 🌟 [거리감 조정 옵션]
-        // 1.0 = 현재 비율 (너무 가깝게 찍힘)
-        // 0.75 = 약 25% 멀어짐 (추천: 적당한 시야 확보)
-        // 더 멀리 찍히게 하려면 이 값을 0.7 이나 0.65 정도로 더 낮추시면 됩니다!
-        const CUSTOM_ZOOM = 0.65; 
+        // 🌟 [줌 설정] 여기서 수치를 조정하세요!
+        // 1.0 = 최대 시야(가까움) / 0.6 = 넓은 시야(줌아웃)
+        const ZOOM_SETTINGS = {
+            front: 0.8,  // 셀카 모드 줌아웃 (너무 멀지 않게 조정)
+            back: 0.65   // 후면 모드 줌아웃 (시원하게 넓게 찍히도록)
+        };
 
         const video = document.getElementById('video');
         const frame = document.getElementById('frame-overlay');
@@ -124,34 +47,24 @@
         let useFrontCamera = true;
 
         async function startCamera() {
-            if (currentStream) {
-                currentStream.getTracks().forEach(track => track.stop());
-            }
-
+            if (currentStream) currentStream.getTracks().forEach(track => track.stop());
+            
             const constraints = {
-                video: {
-                    facingMode: useFrontCamera ? "user" : "environment",
-                    width: { ideal: 1080 },
-                    height: { ideal: 1920 }
-                },
+                video: { facingMode: useFrontCamera ? "user" : "environment", width: { ideal: 1080 }, height: { ideal: 1920 } },
                 audio: false
             };
 
             try {
                 currentStream = await navigator.mediaDevices.getUserMedia(constraints);
                 video.srcObject = currentStream;
-                
-                // 미리보기 화면도 줌아웃과 거울모드 연동시킴
                 updateVideoPreview();
-            } catch (error) {
-                alert("카메라 권한을 허용해 주세요.");
-            }
+            } catch (error) { alert("카메라 권한을 허용해 주세요."); }
         }
 
         function updateVideoPreview() {
-            // object-fit: cover 상태에서 인위적으로 scale을 줄여 줌아웃 효과 구현
+            const currentZoom = useFrontCamera ? ZOOM_SETTINGS.front : ZOOM_SETTINGS.back;
             const flipX = useFrontCamera ? -1 : 1;
-            video.style.transform = `scale(${flipX * CUSTOM_ZOOM}, ${CUSTOM_ZOOM})`;
+            video.style.transform = `scale(${flipX * currentZoom}, ${currentZoom})`;
         }
 
         switchBtn.addEventListener('click', () => {
@@ -161,24 +74,21 @@
 
         captureBtn.addEventListener('click', () => {
             const ctx = canvas.getContext('2d');
-            
             const targetWidth = frame.naturalWidth || 1080;
             const targetHeight = frame.naturalHeight || 1920;
-            
-            canvas.width = targetWidth;
-            canvas.height = targetHeight;
+            canvas.width = targetWidth; canvas.height = targetHeight;
 
-            // 배경 클리어
             ctx.fillStyle = "#000000";
             ctx.fillRect(0, 0, targetWidth, targetHeight);
-
             ctx.save();
 
-            // 전면 카메라 거울 반전
             if (useFrontCamera) {
                 ctx.translate(targetWidth, 0);
                 ctx.scale(-1, 1);
             }
+
+            // 현재 카메라 모드에 맞는 줌 값 선택
+            const currentZoom = useFrontCamera ? ZOOM_SETTINGS.front : ZOOM_SETTINGS.back;
 
             const vWidth = video.videoWidth;
             const vHeight = video.videoHeight;
@@ -186,8 +96,6 @@
             const targetRatio = targetWidth / targetHeight;
 
             let rWidth, rHeight;
-
-            // 1단계: 먼저 꽉 차는 기본 Cover 크기 구하기
             if (videoRatio > targetRatio) {
                 rHeight = targetHeight;
                 rWidth = targetHeight * videoRatio;
@@ -196,31 +104,19 @@
                 rHeight = targetWidth / videoRatio;
             }
 
-            // 2단계: 🌟 [핵심 수식] 설정한 CUSTOM_ZOOM 만큼 카메라 렌즈 상을 통째로 축소 (줌아웃)
-            const finalWidth = rWidth * CUSTOM_ZOOM;
-            const finalHeight = rHeight * CUSTOM_ZOOM;
-
-            // 3단계: 축소하면서 생기는 오프셋을 정중앙으로 밀어 정렬하기
+            const finalWidth = rWidth * currentZoom;
+            const finalHeight = rHeight * currentZoom;
             const xOff = (targetWidth - finalWidth) / 2;
             const yOff = (targetHeight - finalHeight) / 2;
             
-            // 축소 처리된 적당한 거리의 이미지 드로우
             ctx.drawImage(video, xOff, yOff, finalWidth, finalHeight);
             ctx.restore();
-
-            // [2단계] 프레임 레이어 선명하게 입히기
             ctx.drawImage(frame, 0, 0, targetWidth, targetHeight);
 
-            // [3단계] 최종 저장 다운로드
-            try {
-                const dataUrl = canvas.toDataURL('image/png');
-                const link = document.createElement('a');
-                link.download = `faith_cruise_${Date.now()}.png`;
-                link.href = dataUrl;
-                link.click();
-            } catch (e) {
-                alert("다운로드 실패: 일반 모바일 브라우저(크롬, 사파리)를 사용해 주세요.");
-            }
+            const link = document.createElement('a');
+            link.download = `photo_${Date.now()}.png`;
+            link.href = canvas.toDataURL('image/png');
+            link.click();
         });
 
         window.addEventListener('load', startCamera);
