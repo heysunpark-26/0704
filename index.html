@@ -36,7 +36,7 @@
             left: 0;
             width: 100%;
             height: 100%;
-            object-fit: contain; 
+            object-fit: cover; /* 화면을 가득 채우기 */
             z-index: 1;
             background-color: #000;
         }
@@ -145,81 +145,88 @@
         captureBtn.addEventListener('click', () => {
             const ctx = canvas.getContext('2d');
             
-            // 저장할 이미지 해상도를 프레임 기준으로 세로형 고정
+            // 최종 결과물 해상도 (세로형 기준 고정)
             const targetWidth = frame.naturalWidth || 1080;
             const targetHeight = frame.naturalHeight || 1920;
             
             canvas.width = targetWidth;
             canvas.height = targetHeight;
 
-            // 검은색 배경 청소
+            // 배경 클리어
             ctx.fillStyle = "#000000";
             ctx.fillRect(0, 0, targetWidth, targetHeight);
 
             ctx.save();
 
-            // ⚠️ [가로방향 데이터 감지 및 세로 회전 보정]
-            // 실제 카메라 픽셀 데이터가 가로로 누워있는지 확인합니다.
+            // 기기 렌즈 데이터 자체의 해상도 비율 판단
             const isVideoHorizontal = video.videoWidth > video.videoHeight;
-            
-            let vWidth = video.videoWidth;
-            let vHeight = video.videoHeight;
 
             if (isVideoHorizontal) {
-                // 1. 캔버스 중심점을 기준으로 이동한 뒤 90도 회전 시킵니다.
+                // 1. 도화지(Canvas) 정중앙으로 원점을 이동합니다.
                 ctx.translate(targetWidth / 2, targetHeight / 2);
+                
+                // 2. 가로로 누워있는 영상을 바로 세우기 위해 90도 회전합니다.
                 ctx.rotate(90 * Math.PI / 180);
                 
-                // 2. 전면 카메라 거울 모드 대응 좌우 반전 위치 조정
+                // 3. 전면 카메라인 경우 거울 모드 반전 처리
                 if (useFrontCamera) {
-                    ctx.scale(1, -1); // 회전된 상태에서의 반전
+                    ctx.scale(1, -1);
                 }
-                
-                // 3. 회전했으므로 너비와 높이 기준을 스왑(Swap)합니다.
-                vWidth = video.videoHeight;
-                vHeight = video.videoWidth;
-                
-                // 4. 중심점을 다시 드로잉용 원점으로 가상 이동
-                ctx.translate(-targetHeight / 2, -targetWidth / 2);
+
+                // 4. 누운 영상 기준 해상도 매핑 계산 (Cover 방식 적용으로 좌측 쏠림 제거)
+                const vWidth = video.videoWidth;
+                const vHeight = video.videoHeight;
+                const videoRatio = vWidth / vHeight;
+                const targetRatio = targetHeight / targetWidth; // 회전했으므로 너비/높이 기준 반전
+
+                let rWidth, rHeight;
+                if (videoRatio > targetRatio) {
+                    rHeight = targetWidth;
+                    rWidth = targetWidth * videoRatio;
+                } else {
+                    rWidth = targetHeight;
+                    rHeight = targetHeight / videoRatio;
+                }
+
+                // 회전된 캔버스 기준 중심을 맞춰 정중앙에 그리기
+                ctx.drawImage(video, -rWidth / 2, -rHeight / 2, rWidth, rHeight);
+
             } else {
-                // 정상적인 세로형 데이터인 경우 기존 로직 유지
+                // 일반적인 세로형 센서 데이터일 경우 기존 표준 정렬 적용
                 if (useFrontCamera) {
                     ctx.translate(targetWidth, 0);
                     ctx.scale(-1, 1);
                 }
-            }
 
-            // [1단계] 비율 계산 (Contain 방식)
-            const videoRatio = vWidth / vHeight;
-            const targetRatio = targetWidth / targetHeight;
+                const videoRatio = video.videoWidth / video.videoHeight;
+                const targetRatio = targetWidth / targetHeight;
 
-            let renderWidth, renderHeight, xOffset, yOffset;
-
-            if (videoRatio > targetRatio) {
-                renderWidth = isVideoHorizontal ? targetHeight : targetWidth;
-                renderHeight = renderWidth / videoRatio;
-                xOffset = 0;
-                yOffset = ((isVideoHorizontal ? targetWidth : targetHeight) - renderHeight) / 2;
-            } else {
-                renderHeight = isVideoHorizontal ? targetWidth : targetHeight;
-                renderWidth = renderHeight * videoRatio;
-                xOffset = ((isVideoHorizontal ? targetHeight : targetWidth) - renderWidth) / 2;
-                yOffset = 0;
-            }
-
-            // 가로 상태로 회전된 상태 혹은 일반 상태에 맞춰 정확히 바인딩하여 그리기
-            if (isVideoHorizontal) {
-                ctx.drawImage(video, yOffset, xOffset, renderHeight, renderWidth);
-            } else {
-                ctx.drawImage(video, xOffset, yOffset, renderWidth, renderHeight);
+                let rWidth, rHeight, xOff, yOff;
+                if (videoRatio > targetRatio) {
+                    rHeight = targetHeight;
+                    rWidth = targetHeight * videoRatio;
+                    xOff = (targetWidth - rWidth) / 2;
+                    yOff = 0;
+                } else {
+                    rWidth = targetWidth;
+                    rHeight = targetWidth / videoRatio;
+                    xOff = 0;
+                    yOff = (targetHeight - rHeight) / 2;
+                }
+                
+                if (useFrontCamera) {
+                    ctx.drawImage(video, -xOff - rWidth, yOff, rWidth, rHeight);
+                } else {
+                    ctx.drawImage(video, xOff, yOff, rWidth, rHeight);
+                }
             }
             
             ctx.restore();
 
-            // [2단계] 그 위에 동암교회 프레임을 온전하게 덮어쓰기
+            // [2단계] 그 위에 완성된 동암교회 프레임을 온전한 비율로 덮어쓰기
             ctx.drawImage(frame, 0, 0, targetWidth, targetHeight);
 
-            // [3단계] 다운로드 유도
+            // [3단계] 다운로드 처리
             try {
                 const dataUrl = canvas.toDataURL('image/png');
                 const link = document.createElement('a');
@@ -227,7 +234,7 @@
                 link.href = dataUrl;
                 link.click();
             } catch (e) {
-                alert("다운로드에 실패했습니다. 크롬이나 사파리 앱을 사용해 주세요.");
+                alert("다운로드 실패: 브라우저 환경을 확인해 주세요.");
             }
         });
 
