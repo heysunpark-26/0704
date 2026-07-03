@@ -3,47 +3,85 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>믿음의 항해 카메라 (9:16 고정)</title>
+    <title>믿음의 항해 카메라</title>
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; }
         body { background-color: #000; display: flex; justify-content: center; align-items: center; min-height: 100vh; overflow: hidden; }
         
+        /* 앱 컨테이너: 화면 전체를 꽉 채우도록 유연하게 설정 */
         #app-container { 
             position: relative; 
             width: 100vw; 
             height: 100vh; 
             max-width: 500px; 
-            max-height: 888px; 
+            max-height: 100vh; 
             background-color: #000; 
             overflow: hidden; 
         }
 
-        /* 미리보기 화면을 9:16 비율로 고정하고 중앙 정렬 */
+        /* 🌟 검은 여백을 없애기 위해 비디오 영역을 가득 채우는 박스 */
         #video-wrapper {
             position: absolute;
             top: 0;
             left: 0;
             width: 100%;
             height: 100%;
-            overflow: hidden;
             display: flex;
             justify-content: center;
             align-items: center;
-        }
-
-        video {
-            /* 9:16 비율 컨테이너 내에서 비율을 유지하며 줌아웃 적용 */
-            width: 100%;
-            height: 100%;
-            object-fit: cover;
-            transform-origin: center;
             z-index: 1;
         }
 
-        #frame-overlay { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 2; object-fit: fill; }
-        #controls { position: absolute; bottom: 40px; left: 0; width: 100%; display: flex; justify-content: space-around; align-items: center; padding: 0 40px; z-index: 3; }
-        #capture-btn { width: 75px; height: 75px; border-radius: 50%; background-color: #fff; border: 5px solid rgba(255, 255, 255, 0.4); cursor: pointer; }
-        #switch-btn { background: rgba(0, 0, 0, 0.6); color: #fff; border: 1px solid rgba(255, 255, 255, 0.3); padding: 10px 20px; border-radius: 20px; font-size: 14px; cursor: pointer; }
+        video {
+            width: 100%;
+            height: 100%;
+            object-fit: cover; /* 빈틈없이 꽉 채우기 */
+            transform-origin: center center;
+        }
+
+        /* 투명 PNG 프레임: 카메라 위를 빈틈없이 가득 덮음 */
+        #frame-overlay { 
+            position: absolute; 
+            top: 0; 
+            left: 0; 
+            width: 100%; 
+            height: 100%; 
+            pointer-events: none; 
+            z-index: 2; 
+            object-fit: fill; 
+        }
+
+        /* 하단 UI 컨트롤러 */
+        #controls { 
+            position: absolute; 
+            bottom: 40px; 
+            left: 0; 
+            width: 100%; 
+            display: flex; 
+            justify-content: space-around; 
+            align-items: center; 
+            padding: 0 40px; 
+            z-index: 3; 
+        }
+        #capture-btn { 
+            width: 75px; 
+            height: 75px; 
+            border-radius: 50%; 
+            background-color: #fff; 
+            border: 5px solid rgba(255, 255, 255, 0.4); 
+            cursor: pointer; 
+            box-shadow: 0 4px 15px rgba(0,0,0,0.5);
+        }
+        #switch-btn { 
+            background: rgba(0, 0, 0, 0.6); 
+            color: #fff; 
+            border: 1px solid rgba(255, 255, 255, 0.3); 
+            padding: 10px 20px; 
+            border-radius: 20px; 
+            font-size: 14px; 
+            cursor: pointer; 
+            backdrop-filter: blur(5px);
+        }
         canvas { display: none; }
     </style>
 </head>
@@ -63,7 +101,14 @@
     <canvas id="canvas"></canvas>
 
     <script>
-        const ZOOM_SETTINGS = { front: 0.8, back: 0.65 };
+        // 🌟 [최적화 줌 세팅] 
+        // 0.7~0.75 정도가 화면 왜곡 없이 여백을 꽉 채우면서 주변 배경이 넓게 나오는 황금 비율입니다.
+        // 만약 더 멀리 찍히게 하고 싶다면 0.65 등으로 수치를 낮춰보세요!
+        const ZOOM_SETTINGS = { 
+            front: 0.72,  // 셀카 모드 줌아웃 비율
+            back: 0.72    // 후면 카메라 줌아웃 비율
+        };
+
         const video = document.getElementById('video');
         const frame = document.getElementById('frame-overlay');
         const captureBtn = document.getElementById('capture-btn');
@@ -82,15 +127,16 @@
             try {
                 currentStream = await navigator.mediaDevices.getUserMedia(constraints);
                 video.srcObject = currentStream;
-                applyZoom();
+                applyLiveZoom();
             } catch (error) { alert("카메라 권한을 허용해 주세요."); }
         }
 
-        // 줌아웃과 비율 반전을 적용하는 함수
-        function applyZoom() {
+        // 렌더링 화면에 검은 여백을 지우고 줌아웃 가상 적용
+        function applyLiveZoom() {
             const currentZoom = useFrontCamera ? ZOOM_SETTINGS.front : ZOOM_SETTINGS.back;
             const flipX = useFrontCamera ? -1 : 1;
-            // 9:16 화면 안에서 스케일 조절
+            
+            // 화면 비율을 꽉 채운 상태(object-fit:cover)에서 내부 배율만 자연스럽게 축소
             video.style.transform = `scale(${flipX * currentZoom}, ${currentZoom})`;
         }
 
@@ -101,10 +147,11 @@
 
         captureBtn.addEventListener('click', () => {
             const ctx = canvas.getContext('2d');
-            const targetWidth = 1080; // 프레임 고정 가로
-            const targetHeight = 1920; // 프레임 고정 세로
+            const targetWidth = frame.naturalWidth || 1080;
+            const targetHeight = frame.naturalHeight || 1920;
             canvas.width = targetWidth; canvas.height = targetHeight;
 
+            // 도화지를 깔끔하게 초기화
             ctx.fillStyle = "#000000";
             ctx.fillRect(0, 0, targetWidth, targetHeight);
             ctx.save();
@@ -116,31 +163,43 @@
 
             const currentZoom = useFrontCamera ? ZOOM_SETTINGS.front : ZOOM_SETTINGS.back;
             
-            // 9:16 비율에 맞춘 렌더링 로직
             const vWidth = video.videoWidth;
             const vHeight = video.videoHeight;
-            const videoRatio = vWidth / vHeight; // 보통 9:16보다 옆으로 넓음
-            
-            // 9:16 화면에 꽉 차게 계산
-            const rHeight = targetHeight;
-            const rWidth = targetHeight * videoRatio;
-            const xOff = (targetWidth - rWidth) / 2;
-            const yOff = 0;
+            const videoRatio = vWidth / vHeight;
+            const targetRatio = targetWidth / targetHeight;
 
-            // 줌아웃 적용된 크기 계산
+            let rWidth, rHeight;
+            // 빈틈없이 꽉 채우는 베이스 크기 계산 (Cover 공식)
+            if (videoRatio > targetRatio) {
+                rHeight = targetHeight;
+                rWidth = targetHeight * videoRatio;
+            } else {
+                rWidth = targetWidth;
+                rHeight = targetWidth / videoRatio;
+            }
+
+            // 구한 베이스 크기에 설정값만큼 멀어지도록 배율 축소 연산
             const fWidth = rWidth * currentZoom;
             const fHeight = rHeight * currentZoom;
-            const fx = xOff + (rWidth - fWidth) / 2;
-            const fy = yOff + (rHeight - fHeight) / 2;
             
+            // 줌아웃으로 인해 생기는 여백 영역 분할 후 중앙 정렬 계산
+            const fx = (targetWidth - fWidth) / 2;
+            const fy = (targetHeight - fHeight) / 2;
+            
+            // 영상 출력 및 프레임 합성
             ctx.drawImage(video, fx, fy, fWidth, fHeight);
             ctx.restore();
             ctx.drawImage(frame, 0, 0, targetWidth, targetHeight);
 
-            const link = document.createElement('a');
-            link.download = `photo_${Date.now()}.png`;
-            link.href = canvas.toDataURL('image/png');
-            link.click();
+            // 최종 파일 추출 및 저장
+            try {
+                const link = document.createElement('a');
+                link.download = `faith_voyage_${Date.now()}.png`;
+                link.href = canvas.toDataURL('image/png');
+                link.click();
+            } catch (e) {
+                alert("기본 모바일 브라우저(크롬/사파리)로 접속하시면 바로 저장하실 수 있습니다.");
+            }
         });
 
         window.addEventListener('load', startCamera);
