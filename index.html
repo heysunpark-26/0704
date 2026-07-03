@@ -3,13 +3,44 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>믿음의 항해 카메라 (셀카/후면 줌 최적화)</title>
+    <title>믿음의 항해 카메라 (9:16 고정)</title>
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; }
         body { background-color: #000; display: flex; justify-content: center; align-items: center; min-height: 100vh; overflow: hidden; }
-        #app-container { position: relative; width: 100vw; height: 100vh; max-width: 500px; max-height: 888px; background-color: #000; overflow: hidden; }
-        video { position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; z-index: 1; }
-        #frame-overlay { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 2; }
+        
+        #app-container { 
+            position: relative; 
+            width: 100vw; 
+            height: 100vh; 
+            max-width: 500px; 
+            max-height: 888px; 
+            background-color: #000; 
+            overflow: hidden; 
+        }
+
+        /* 미리보기 화면을 9:16 비율로 고정하고 중앙 정렬 */
+        #video-wrapper {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        video {
+            /* 9:16 비율 컨테이너 내에서 비율을 유지하며 줌아웃 적용 */
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            transform-origin: center;
+            z-index: 1;
+        }
+
+        #frame-overlay { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 2; object-fit: fill; }
         #controls { position: absolute; bottom: 40px; left: 0; width: 100%; display: flex; justify-content: space-around; align-items: center; padding: 0 40px; z-index: 3; }
         #capture-btn { width: 75px; height: 75px; border-radius: 50%; background-color: #fff; border: 5px solid rgba(255, 255, 255, 0.4); cursor: pointer; }
         #switch-btn { background: rgba(0, 0, 0, 0.6); color: #fff; border: 1px solid rgba(255, 255, 255, 0.3); padding: 10px 20px; border-radius: 20px; font-size: 14px; cursor: pointer; }
@@ -19,7 +50,9 @@
 <body>
 
     <div id="app-container">
-        <video id="video" autoplay playsinline></video>
+        <div id="video-wrapper">
+            <video id="video" autoplay playsinline></video>
+        </div>
         <img id="frame-overlay" src="frame.png" alt="프레임">
         <div id="controls">
             <button id="switch-btn">🔄 전환</button>
@@ -30,13 +63,7 @@
     <canvas id="canvas"></canvas>
 
     <script>
-        // 🌟 [줌 설정] 여기서 수치를 조정하세요!
-        // 1.0 = 최대 시야(가까움) / 0.6 = 넓은 시야(줌아웃)
-        const ZOOM_SETTINGS = {
-            front: 0.8,  // 셀카 모드 줌아웃 (너무 멀지 않게 조정)
-            back: 0.65   // 후면 모드 줌아웃 (시원하게 넓게 찍히도록)
-        };
-
+        const ZOOM_SETTINGS = { front: 0.8, back: 0.65 };
         const video = document.getElementById('video');
         const frame = document.getElementById('frame-overlay');
         const captureBtn = document.getElementById('capture-btn');
@@ -48,22 +75,22 @@
 
         async function startCamera() {
             if (currentStream) currentStream.getTracks().forEach(track => track.stop());
-            
             const constraints = {
                 video: { facingMode: useFrontCamera ? "user" : "environment", width: { ideal: 1080 }, height: { ideal: 1920 } },
                 audio: false
             };
-
             try {
                 currentStream = await navigator.mediaDevices.getUserMedia(constraints);
                 video.srcObject = currentStream;
-                updateVideoPreview();
+                applyZoom();
             } catch (error) { alert("카메라 권한을 허용해 주세요."); }
         }
 
-        function updateVideoPreview() {
+        // 줌아웃과 비율 반전을 적용하는 함수
+        function applyZoom() {
             const currentZoom = useFrontCamera ? ZOOM_SETTINGS.front : ZOOM_SETTINGS.back;
             const flipX = useFrontCamera ? -1 : 1;
+            // 9:16 화면 안에서 스케일 조절
             video.style.transform = `scale(${flipX * currentZoom}, ${currentZoom})`;
         }
 
@@ -74,8 +101,8 @@
 
         captureBtn.addEventListener('click', () => {
             const ctx = canvas.getContext('2d');
-            const targetWidth = frame.naturalWidth || 1080;
-            const targetHeight = frame.naturalHeight || 1920;
+            const targetWidth = 1080; // 프레임 고정 가로
+            const targetHeight = 1920; // 프레임 고정 세로
             canvas.width = targetWidth; canvas.height = targetHeight;
 
             ctx.fillStyle = "#000000";
@@ -87,29 +114,26 @@
                 ctx.scale(-1, 1);
             }
 
-            // 현재 카메라 모드에 맞는 줌 값 선택
             const currentZoom = useFrontCamera ? ZOOM_SETTINGS.front : ZOOM_SETTINGS.back;
-
+            
+            // 9:16 비율에 맞춘 렌더링 로직
             const vWidth = video.videoWidth;
             const vHeight = video.videoHeight;
-            const videoRatio = vWidth / vHeight;
-            const targetRatio = targetWidth / targetHeight;
-
-            let rWidth, rHeight;
-            if (videoRatio > targetRatio) {
-                rHeight = targetHeight;
-                rWidth = targetHeight * videoRatio;
-            } else {
-                rWidth = targetWidth;
-                rHeight = targetWidth / videoRatio;
-            }
-
-            const finalWidth = rWidth * currentZoom;
-            const finalHeight = rHeight * currentZoom;
-            const xOff = (targetWidth - finalWidth) / 2;
-            const yOff = (targetHeight - finalHeight) / 2;
+            const videoRatio = vWidth / vHeight; // 보통 9:16보다 옆으로 넓음
             
-            ctx.drawImage(video, xOff, yOff, finalWidth, finalHeight);
+            // 9:16 화면에 꽉 차게 계산
+            const rHeight = targetHeight;
+            const rWidth = targetHeight * videoRatio;
+            const xOff = (targetWidth - rWidth) / 2;
+            const yOff = 0;
+
+            // 줌아웃 적용된 크기 계산
+            const fWidth = rWidth * currentZoom;
+            const fHeight = rHeight * currentZoom;
+            const fx = xOff + (rWidth - fWidth) / 2;
+            const fy = yOff + (rHeight - fHeight) / 2;
+            
+            ctx.drawImage(video, fx, fy, fWidth, fHeight);
             ctx.restore();
             ctx.drawImage(frame, 0, 0, targetWidth, targetHeight);
 
