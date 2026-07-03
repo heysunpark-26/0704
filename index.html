@@ -19,7 +19,7 @@
             min-height: 100vh;
             overflow: hidden;
         }
-        /* 화면 비율 컨테이너 */
+        /* 화면 비율 컨테이너 (스마트폰 최적화 세로형 뷰포트) */
         #app-container {
             position: relative;
             width: 100vw;
@@ -30,15 +30,14 @@
             overflow: hidden;
             box-shadow: 0 0 30px rgba(0,0,0,0.8);
         }
-        /* 실시간 카메라 피드 - 줌아웃 비율 시각적 동기화 */
+        /* 실시간 카메라 피드 - 빈틈없이 꽉 채우도록 설정 */
         video {
             position: absolute;
             top: 0;
             left: 0;
             width: 100%;
             height: 100%;
-            /* ⚠️ 아래 자바스크립트에서 CAMERA_ZOOM 비율에 맞춰 object-fit과 scale을 조절합니다 */
-            object-fit: contain; 
+            object-fit: cover; /* 예시 사진처럼 여백 없이 꽉 채우기 */
             z-index: 1;
             background-color: #000;
         }
@@ -109,11 +108,6 @@
     <canvas id="canvas"></canvas>
 
     <script>
-        // 🌟 [줌 제어 설정 옵션] 
-        // 1.0 = 기본 비율 / 0.75 = 25% 줌아웃(더 멀리 찍힘) / 0.6 = 40% 줌아웃
-        // 사진을 더 멀리서 찍히게 하려면 이 값을 0.7이나 0.6으로 줄이시면 됩니다!
-        const CAMERA_ZOOM = 0.75; 
-
         const video = document.getElementById('video');
         const frame = document.getElementById('frame-overlay');
         const captureBtn = document.getElementById('capture-btn');
@@ -140,18 +134,10 @@
             try {
                 currentStream = await navigator.mediaDevices.getUserMedia(constraints);
                 video.srcObject = currentStream;
-                
-                // 실시간 화면 미리보기에도 적용할 줌아웃 스케일 반영
-                updateVideoTransform();
+                video.style.transform = useFrontCamera ? "scaleX(-1)" : "scaleX(1)";
             } catch (error) {
                 alert("카메라 권한을 허용해 주세요.");
             }
-        }
-
-        function updateVideoTransform() {
-            // 전면 카메라 거울 반전(scaleX(-1))과 줌아웃 배열 결합
-            const scaleXStr = useFrontCamera ? -CAMERA_ZOOM : CAMERA_ZOOM;
-            video.style.transform = `scale(${scaleXStr}, ${CAMERA_ZOOM})`;
         }
 
         switchBtn.addEventListener('click', () => {
@@ -162,19 +148,20 @@
         captureBtn.addEventListener('click', () => {
             const ctx = canvas.getContext('2d');
             
+            // 결과물 저장 해상도 (프레임 원본 기준 1:1 세로형 박스 고정)
             const targetWidth = frame.naturalWidth || 1080;
             const targetHeight = frame.naturalHeight || 1920;
             
             canvas.width = targetWidth;
             canvas.height = targetHeight;
 
-            // 배경 클리어 (빈 여백은 검은색으로 고정)
+            // 도화지 초기화
             ctx.fillStyle = "#000000";
             ctx.fillRect(0, 0, targetWidth, targetHeight);
 
             ctx.save();
 
-            // 1. 전면 카메라 거울 모드 보정
+            // 전면 카메라 거울 모드 좌우 대칭 보정
             if (useFrontCamera) {
                 ctx.translate(targetWidth, 0);
                 ctx.scale(-1, 1);
@@ -187,43 +174,38 @@
 
             let rWidth, rHeight, xOff, yOff;
 
-            // 정방향 세로 배치 크기 계산
+            // 🌟 [핵심 수정: 세로 꽉 찬 Cover 렌더링 공식] 
+            // 찌그러짐 없이 예시 이미지처럼 위아래/좌우 여백을 완전히 메우며 적당한 시야 확보
             if (videoRatio > targetRatio) {
-                rWidth = targetWidth;
-                rHeight = targetWidth / videoRatio;
-                xOff = 0;
-                yOff = (targetHeight - rHeight) / 2;
-            } else {
+                // 영상이 프레임보다 가로로 더 넓은 경우 -> 세로를 꽉 채우고 좌우를 균등 분할 크롭
                 rHeight = targetHeight;
                 rWidth = targetHeight * videoRatio;
                 xOff = (targetWidth - rWidth) / 2;
                 yOff = 0;
+            } else {
+                // 영상이 프레임보다 세로로 더 긴 경우 -> 가로를 꽉 채우고 위아래를 균등 분할 크롭
+                rWidth = targetWidth;
+                rHeight = targetWidth / videoRatio;
+                xOff = 0;
+                yOff = (targetHeight - rHeight) / 2;
             }
             
-            // 2. 🌟 [핵심] 지정된 CAMERA_ZOOM 비율만큼 렌더링 영역을 중앙 기점으로 축소(줌아웃)
-            const zoomedWidth = rWidth * CAMERA_ZOOM;
-            const zoomedHeight = rHeight * CAMERA_ZOOM;
-            
-            // 축소되면서 발생하는 추가 여백을 계산하여 정중앙에 정렬
-            const finalX = xOff + (rWidth - zoomedWidth) / 2;
-            const finalY = yOff + (rHeight - zoomedHeight) / 2;
-
-            // 축소된 카메라 영상 그리기
-            ctx.drawImage(video, finalX, finalY, zoomedWidth, zoomedHeight);
+            // 이미지 드로잉
+            ctx.drawImage(video, xOff, yOff, rWidth, rHeight);
             ctx.restore();
 
-            // 3. 그 위에 캐릭터 프레임 온전하게 오버레이
+            // [2단계] 그 위에 투명 PNG 캐릭터 디자인 프레임을 온전한 해상도로 덮어쓰기
             ctx.drawImage(frame, 0, 0, targetWidth, targetHeight);
 
-            // 4. 다운로드
+            // [3단계] 최종 다운로드 처리
             try {
                 const dataUrl = canvas.toDataURL('image/png');
                 const link = document.createElement('a');
-                link.download = `faith_cruise_${Date.now()}.png`;
+                link.download = `faith_nation_${Date.now()}.png`;
                 link.href = dataUrl;
                 link.click();
             } catch (e) {
-                alert("다운로드 실패: 일반 브라우저(크롬, 사파리)를 이용해 주세요.");
+                alert("다운로드 실패: 일반 모바일 브라우저(크롬, 사파리)를 이용해 주세요.");
             }
         });
 
