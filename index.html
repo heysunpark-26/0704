@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>믿음의 항해 카메라</title>
+    <title>예수님과 함께하는 믿음의 항해</title>
     <style>
         * {
             box-sizing: border-box;
@@ -19,7 +19,7 @@
             min-height: 100vh;
             overflow: hidden;
         }
-        /* 화면 비율 컨테이너 */
+        /* 화면 비율 컨테이너 (스마트폰 최적화 세로 뷰) */
         #app-container {
             position: relative;
             width: 100vw;
@@ -28,15 +28,16 @@
             max-height: 888px; 
             background-color: #000;
             overflow: hidden;
+            box-shadow: 0 0 30px rgba(0,0,0,0.8);
         }
-        /* 실시간 카메라 피드 - 화면 확대 절대 금지 설정 */
+        /* 실시간 카메라 피드 - 전체 시야 확보를 위해 자르지 않음 */
         video {
             position: absolute;
             top: 0;
             left: 0;
             width: 100%;
             height: 100%;
-            object-fit: contain; /* 자르지 않고 전체 다 보여주기 */
+            object-fit: contain; 
             z-index: 1;
             background-color: #000;
         }
@@ -51,7 +52,7 @@
             pointer-events: none;
             z-index: 2;
         }
-        /* UI 컨트롤러 */
+        /* 하단 UI 컨트롤러 */
         #controls {
             position: absolute;
             bottom: 40px;
@@ -63,6 +64,7 @@
             padding: 0 40px;
             z-index: 3;
         }
+        /* 촬영 버튼 */
         #capture-btn {
             width: 75px;
             height: 75px;
@@ -71,10 +73,12 @@
             border: 5px solid rgba(255, 255, 255, 0.4);
             cursor: pointer;
             box-shadow: 0 4px 15px rgba(0,0,0,0.5);
+            transition: transform 0.1s ease;
         }
         #capture-btn:active {
-            transform: scale(0.95);
+            transform: scale(0.92);
         }
+        /* 카메라 전환 버튼 */
         #switch-btn {
             background: rgba(0, 0, 0, 0.6);
             color: #fff;
@@ -83,7 +87,12 @@
             border-radius: 20px;
             font-size: 14px;
             cursor: pointer;
+            backdrop-filter: blur(5px);
         }
+        #switch-btn:active {
+            background: rgba(255, 255, 255, 0.2);
+        }
+        /* 합성 연산용 숨겨진 캔버스 */
         canvas {
             display: none;
         }
@@ -92,13 +101,16 @@
 <body>
 
     <div id="app-container">
+        <!-- 실시간 카메라 영상 -->
         <video id="video" autoplay playsinline></video>
+        <!-- 오버레이 프레임 (동암교회 믿음의 항해) -->
         <img id="frame-overlay" src="frame.png" alt="프레임">
         
+        <!-- 하단 조작 UI -->
         <div id="controls">
             <button id="switch-btn">🔄 전환</button>
-            <button id="capture-btn"></button>
-            <div style="width: 65px;"></div>
+            <button id="capture-btn" title="사진 촬영"></button>
+            <div style="width: 65px;"></div> <!-- 우측 밸런스를 위한 여백 -->
         </div>
     </div>
 
@@ -112,8 +124,9 @@
         const canvas = document.getElementById('canvas');
 
         let currentStream = null;
-        let useFrontCamera = true;
+        let useFrontCamera = true; // 기본값: 셀카 모드(전면)
 
+        // 1. 모바일 카메라 시작 함수
         async function startCamera() {
             if (currentStream) {
                 currentStream.getTracks().forEach(track => track.stop());
@@ -131,40 +144,43 @@
             try {
                 currentStream = await navigator.mediaDevices.getUserMedia(constraints);
                 video.srcObject = currentStream;
+                // 전면 카메라는 거울 모드(좌우 반전) 적용, 후면은 정방향
                 video.style.transform = useFrontCamera ? "scaleX(-1)" : "scaleX(1)";
             } catch (error) {
-                alert("카메라를 실행할 수 없습니다.");
+                alert("카메라 권한을 허용해 주셔야 이용이 가능합니다.");
             }
         }
 
+        // 2. 카메라 전/후면 전환 이벤트
         switchBtn.addEventListener('click', () => {
             useFrontCamera = !useFrontCamera;
             startCamera();
         });
 
+        // 3. 사진 촬영 및 이미지 합성 다운로드 이벤트
         captureBtn.addEventListener('click', () => {
             const ctx = canvas.getContext('2d');
             
-            // 결과물 저장 해상도 (세로형 프레임 원본 해상도 기준)
+            // 이미지 저장 해상도 (frame.png 원본 크기 기준 자동으로 매핑)
             const targetWidth = frame.naturalWidth || 1080;
             const targetHeight = frame.naturalHeight || 1920;
             
             canvas.width = targetWidth;
             canvas.height = targetHeight;
 
-            // 배경 클리어 (검은색 배경 채우기)
+            // 도화지 검은색 배경으로 초기화
             ctx.fillStyle = "#000000";
             ctx.fillRect(0, 0, targetWidth, targetHeight);
 
             ctx.save();
 
-            // 전면 카메라 좌우 거울반전 보정
+            // 전면 카메라일 경우 저장할 때도 거울 모드로 좌우 반전 연산
             if (useFrontCamera) {
                 ctx.translate(targetWidth, 0);
                 ctx.scale(-1, 1);
             }
 
-            // 회전 로직을 걷어내고 정방향 매핑을 진행합니다.
+            // 카메라 영상과 프레임 간 비율 계산
             const vWidth = video.videoWidth;
             const vHeight = video.videoHeight;
             const videoRatio = vWidth / vHeight;
@@ -172,7 +188,7 @@
 
             let rWidth, rHeight, xOff, yOff;
 
-            // 영상을 크롭 없이 축소하여 넣는 정방향 세로 Contain 연산
+            // [정방향 세로형 렌더링 공식] 찌그러짐과 무리한 확대를 방지하는 정밀 매핑
             if (videoRatio > targetRatio) {
                 rWidth = targetWidth;
                 rHeight = targetWidth / videoRatio;
@@ -185,14 +201,14 @@
                 yOff = 0;
             }
             
-            // 이미지 그리기
+            // 캔버스에 카메라 프레임 드로우
             ctx.drawImage(video, xOff, yOff, rWidth, rHeight);
             ctx.restore();
 
-            // [2단계] 그 위에 PNG 프레임을 통째로 정확히 덮어쓰기
+            // 그 위에 투명 PNG 캐릭터 프레임을 1:1 크기로 선명하게 덮어쓰기
             ctx.drawImage(frame, 0, 0, targetWidth, targetHeight);
 
-            // [3단계] 이미지 저장 및 다운로드
+            // 최종 이미지 추출 및 다운로드 기능 트리거
             try {
                 const dataUrl = canvas.toDataURL('image/png');
                 const link = document.createElement('a');
@@ -200,10 +216,11 @@
                 link.href = dataUrl;
                 link.click();
             } catch (e) {
-                alert("다운로드에 실패했습니다. 크롬이나 사파리 브라우저를 이용해 주세요.");
+                alert("다운로드 실패: 인앱 브라우저(카카오톡/네이버 등)에서는 저장이 제한될 수 있습니다. 우측 하단 버튼을 눌러 크롬이나 사파리로 열어주세요!");
             }
         });
 
+        // 페이지가 로드되면 카메라 구동
         window.addEventListener('load', startCamera);
     </script>
 </body>
