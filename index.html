@@ -158,67 +158,35 @@
 
             ctx.save();
 
-            const isVideoHorizontal = video.videoWidth > video.videoHeight;
+            // 전면 카메라 좌우 거울반전 보정
+            if (useFrontCamera) {
+                ctx.translate(targetWidth, 0);
+                ctx.scale(-1, 1);
+            }
 
-            if (isVideoHorizontal) {
-                // [가로 센서 카메라 대응 로직]
-                ctx.translate(targetWidth / 2, targetHeight / 2);
-                ctx.rotate(90 * Math.PI / 180);
-                
-                if (useFrontCamera) {
-                    ctx.scale(1, -1);
-                }
+            // 회전 로직을 걷어내고 정방향 매핑을 진행합니다.
+            const vWidth = video.videoWidth;
+            const vHeight = video.videoHeight;
+            const videoRatio = vWidth / vHeight;
+            const targetRatio = targetWidth / targetHeight;
 
-                // 🌟 중요: 영상을 자르지 않고 전체가 들어오도록 렌더링 비율 계산 (Contain 방식)
-                const vWidth = video.videoWidth;
-                const vHeight = video.videoHeight;
-                const videoRatio = vWidth / vHeight;
-                const targetRatio = targetHeight / targetWidth; // 회전 처리로 인한 스왑
+            let rWidth, rHeight, xOff, yOff;
 
-                let rWidth, rHeight;
-                if (videoRatio > targetRatio) {
-                    // 영상이 타겟 영역보다 가로로 더 넓은 경우 -> 세로폭에 맞추고 가로를 줄임
-                    rWidth = targetHeight;
-                    rHeight = targetHeight / videoRatio;
-                } else {
-                    // 영상이 타겟 영역보다 세로로 더 긴 경우 -> 가로폭에 맞추고 세로를 줄임
-                    rHeight = targetWidth;
-                    rWidth = targetWidth * videoRatio;
-                }
-
-                // 정확하게 정중앙에 맞춰서 크롭 없이 축소 배치
-                ctx.drawImage(video, -rWidth / 2, -rHeight / 2, rWidth, rHeight);
-
+            // 영상을 크롭 없이 축소하여 넣는 정방향 세로 Contain 연산
+            if (videoRatio > targetRatio) {
+                rWidth = targetWidth;
+                rHeight = targetWidth / videoRatio;
+                xOff = 0;
+                yOff = (targetHeight - rHeight) / 2;
             } else {
-                // [일반 세로 센서 카메라 대응 로직]
-                if (useFrontCamera) {
-                    ctx.translate(targetWidth, 0);
-                    ctx.scale(-1, 1);
-                }
-
-                const videoRatio = video.videoWidth / video.videoHeight;
-                const targetRatio = targetWidth / targetHeight;
-
-                let rWidth, rHeight, xOff, yOff;
-                if (videoRatio > targetRatio) {
-                    rWidth = targetWidth;
-                    rHeight = targetWidth / videoRatio;
-                    xOff = 0;
-                    yOff = (targetHeight - rHeight) / 2;
-                } else {
-                    rHeight = targetHeight;
-                    rWidth = targetHeight * videoRatio;
-                    xOff = (targetWidth - rWidth) / 2;
-                    yOff = 0;
-                }
-                
-                if (useFrontCamera) {
-                    ctx.drawImage(video, -xOff - rWidth, yOff, rWidth, rHeight);
-                } else {
-                    ctx.drawImage(video, xOff, yOff, rWidth, rHeight);
-                }
+                rHeight = targetHeight;
+                rWidth = targetHeight * videoRatio;
+                xOff = (targetWidth - rWidth) / 2;
+                yOff = 0;
             }
             
+            // 이미지 그리기
+            ctx.drawImage(video, xOff, yOff, rWidth, rHeight);
             ctx.restore();
 
             // [2단계] 그 위에 PNG 프레임을 통째로 정확히 덮어쓰기
